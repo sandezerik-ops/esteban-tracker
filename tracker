@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FIFO Stock Tracker</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for Inter font and general theme */
+        :root {
+            --primary: #3b82f6; /* blue-500 */
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* gray-100 */
+        }
+        .card {
+            background-color: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+        }
+        .btn-primary {
+            background-color: var(--primary);
+            color: white;
+            transition: background-color 0.15s;
+        }
+        .btn-primary:hover {
+            background-color: #2563eb; /* blue-600 */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="min-h-screen p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl font-extrabold text-gray-800">FIFO Stock Management</h1>
+            <p class="text-gray-500 mt-1">First-In, First-Out Tracker for Bags/Units</p>
+        </header>
+
+        <main id="app-container" class="max-w-7xl mx-auto space-y-8">
+            <div id="loading-spinner" class="text-center text-gray-500 mt-10 hidden">
+                <div class="animate-spin inline-block w-8 h-8 border-4 border-t-blue-500 border-gray-200 rounded-full"></div>
+                <p class="mt-2">Connecting to storage...</p>
+            </div>
+            
+            <div id="auth-status" class="text-center text-sm text-gray-400 mb-4"></div>
+            <div id="error-message" class="hidden p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg" role="alert"></div>
+
+            <!-- Input Forms Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                <!-- 1. Add Purchase Form -->
+                <div class="card p-6">
+                    <h2 class="text-xl font-semibold mb-4 text-gray-700">🛒 Add Purchase Bags</h2>
+                    <form id="purchase-form" class="space-y-4">
+                        <div>
+                            <label for="bags" class="block text-sm font-medium text-gray-700">Bags Purchased</label>
+                            <input type="number" id="purchase-bags" required min="1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label for="cost-per-bag" class="block text-sm font-medium text-gray-700">Cost per Bag ($)</label>
+                            <input type="number" id="purchase-cost-per-bag" required min="0.01" step="0.01" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label for="purchase-date" class="block text-sm font-medium text-gray-700">Purchase Date</label>
+                            <input type="date" id="purchase-date" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <button type="submit" class="btn-primary w-full py-2 px-4 rounded-lg font-medium" id="purchase-submit-btn">Add Purchase</button>
+                    </form>
+                </div>
+
+                <!-- 2. Log Job Usage Form -->
+                <div class="card p-6">
+                    <h2 class="text-xl font-semibold mb-4 text-gray-700">🛠️ Log Job Usage</h2>
+                    <form id="job-form" class="space-y-4">
+                        <div>
+                            <label for="job-bags-used" class="block text-sm font-medium text-gray-700">Bags Used</label>
+                            <input type="number" id="job-bags-used" required min="1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label for="job-address" class="block text-sm font-medium text-gray-700">Job Address / Description</label>
+                            <input type="text" id="job-address" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label for="job-date" class="block text-sm font-medium text-gray-700">Job Date</label>
+                            <input type="date" id="job-date" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <button type="submit" class="btn-primary w-full py-2 px-4 rounded-lg font-medium" id="job-submit-btn">Log Usage</button>
+                    </form>
+                </div>
+
+            </div>
+
+            <!-- Output Tables Grid -->
+            <div class="space-y-8">
+                 <!-- 3. Current Stock Table -->
+                <div class="card p-6">
+                    <h2 class="text-xl font-semibold mb-4 text-gray-700">📦 Current Stock (FIFO)</h2>
+                    <div id="current-stock-summary" class="text-lg font-bold mb-4"></div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Purchase Date</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Original Bags</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Remaining Bags</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost / Bag</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Value</th>
+                                </tr>
+                            </thead>
+                            <tbody id="current-stock-table" class="bg-white divide-y divide-gray-200">
+                                <tr><td colspan="5" class="py-4 text-center text-gray-500">No stock found. Add a purchase above.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 4. Purchase History Table -->
+                <div class="card p-6">
+                    <h2 class="text-xl font-semibold mb-4 text-gray-700">📜 Purchase History</h2>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bags Bought</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost / Bag</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Cost</th>
+                                </tr>
+                            </thead>
+                            <tbody id="purchase-history-table" class="bg-white divide-y divide-gray-200">
+                                <tr><td colspan="4" class="py-4 text-center text-gray-500">No purchase history available.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 5. Job History Table -->
+                <div class="card p-6">
+                    <h2 class="text-xl font-semibold mb-4 text-gray-700">📋 Job Usage History</h2>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bags Used</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address/Desc</th>
+                                </tr>
+                            </thead>
+                            <tbody id="job-history-table" class="bg-white divide-y divide-gray-200">
+                                <tr><td colspan="3" class="py-4 text-center text-gray-500">No job history available.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, addDoc, onSnapshot, collection, query, orderBy, where, runTransaction, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Global Variables and Firebase Setup ---
+        // MANDATORY: Use Canvas provided global variables
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // Set Firebase logging for debug (optional, but helpful)
+        setLogLevel('debug');
+
+        let app, db, auth;
+        let userId = null;
+        let isAuthReady = false;
+        
+        // Live data state
+        let purchases = [];
+        let jobs = [];
+        
+        // Element references
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const authStatusEl = document.getElementById('auth-status');
+        const errorEl = document.getElementById('error-message');
+        const purchaseForm = document.getElementById('purchase-form');
+        const jobForm = document.getElementById('job-form');
+        const purchaseSubmitBtn = document.getElementById('purchase-submit-btn');
+        const jobSubmitBtn = document.getElementById('job-submit-btn');
+
+        // Utility to display errors in the UI
+        function displayError(message) {
+            console.error("App Error:", message);
+            errorEl.textContent = "Error: " + message;
+            errorEl.classList.remove('hidden');
+        }
+
+        // Utility to format dates
+        const formatDate = (timestamp) => {
+            if (!timestamp) return 'N/A';
+            // Firestore timestamps have a toDate() method
+            const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+            return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+        };
+        
+        // Utility to format currency
+        const formatCurrency = (amount) => `$${amount.toFixed(2)}`;
+
+        // --- Date and Form Setup ---
+
+        /**
+         * Gets today's date formatted as YYYY-MM-DD for input fields.
+         */
+        function getTodayDateString() {
+            const today = new Date();
+            const year = today.getFullYear();
+            // getMonth() is 0-indexed, so add 1 and pad to 2 digits
+            const month = String(today.getMonth() + 1).padStart(2, '0'); 
+            // getDate() and pad to 2 digits
+            const day = String(today.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        /**
+         * Sets the default value for date input fields to today's date.
+         */
+        function setInitialFormValues() {
+            const todayString = getTodayDateString();
+            document.getElementById('purchase-date').value = todayString;
+            document.getElementById('job-date').value = todayString;
+        }
+
+        // --- Firebase Initialization and Authentication ---
+
+        function initFirebase() {
+            try {
+                loadingSpinner.classList.remove('hidden');
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        authStatusEl.textContent = `User ID: ${userId}. Data is stored privately.`;
+                        isAuthReady = true;
+                        loadingSpinner.classList.add('hidden');
+                        setupDataListeners();
+                    } else {
+                        // Sign in if not authenticated
+                        try {
+                             if (initialAuthToken) {
+                                await signInWithCustomToken(auth, initialAuthToken);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                        } catch (e) {
+                            displayError("Authentication failed. Data will not sync.");
+                        }
+                    }
+                });
+            } catch (e) {
+                displayError("Failed to initialize Firebase. Check console for details.");
+            }
+        }
+
+        // --- Firestore Real-time Listeners ---
+
+        function setupDataListeners() {
+            if (!isAuthReady || !userId || !db) return;
+
+            const baseRef = `/artifacts/${appId}/users/${userId}`;
+            const purchasesColRef = collection(db, `${baseRef}/stock_tracker_purchases`);
+            const jobsColRef = collection(db, `${baseRef}/stock_tracker_jobs`);
+
+            // 1. Listen for Purchases
+            const purchasesQuery = query(purchasesColRef);
+            onSnapshot(purchasesQuery, (snapshot) => {
+                purchases = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                
+                // IMPORTANT: Sort in JS for accurate FIFO and rendering
+                purchases.sort((a, b) => {
+                    // 1. Sort by Purchase Date (FIFO primary key)
+                    const dateA = a.dateTimestamp.toDate();
+                    const dateB = b.dateTimestamp.toDate();
+                    if (dateA < dateB) return -1;
+                    if (dateA > dateB) return 1;
+                    
+                    // 2. If dates are the same, sort by creation timestamp (strict FIFO tie-breaker)
+                    const timeA = a.timestamp.toDate();
+                    const timeB = b.timestamp.toDate();
+                    if (timeA < timeB) return -1;
+                    if (timeA > timeB) return 1;
+                    return 0;
+                });
+                
+                renderAllTables();
+            }, (error) => {
+                displayError("Failed to fetch purchases: " + error.message);
+            });
+
+            // 2. Listen for Jobs
+            // Jobs can still be ordered by a single field (timestamp)
+            const jobsQuery = query(jobsColRef, orderBy('timestamp', 'desc'));
+            onSnapshot(jobsQuery, (snapshot) => {
+                jobs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderJobHistory();
+            }, (error) => {
+                displayError("Failed to fetch jobs: " + error.message);
+            });
+        }
+
+        // --- Data Rendering ---
+
+        function renderAllTables() {
+            renderPurchaseHistory();
+            renderCurrentStock();
+        }
+
+        function renderPurchaseHistory() {
+            const tbody = document.getElementById('purchase-history-table');
+            tbody.innerHTML = '';
+
+            if (purchases.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="py-4 text-center text-gray-500">No purchase history available.</td></tr>';
+                return;
+            }
+
+            purchases.forEach(p => {
+                const totalCost = p.originalBags * p.costPerBag;
+                const row = `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4 whitespace-nowrap">${formatDate(p.dateTimestamp)}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">${p.originalBags}</td>
+                        <td class="px-6 py-4 whitespace-nowrap font-mono">${formatCurrency(p.costPerBag)}</td>
+                        <td class="px-6 py-4 whitespace-nowrap font-bold">${formatCurrency(totalCost)}</td>
+                    </tr>
+                `;
+                tbody.innerHTML += row;
+            });
+        }
+
+        function renderCurrentStock() {
+            const tbody = document.getElementById('current-stock-table');
+            const summaryEl = document.getElementById('current-stock-summary');
+            tbody.innerHTML = '';
+            
+            // Only show purchases with remaining bags > 0
+            const currentStock = purchases.filter(p => p.remainingBags > 0);
+            
+            let totalBagsRemaining = 0;
+            let totalValue = 0;
+
+            if (currentStock.length === 0) {
+                summaryEl.textContent = "Total Remaining Bags: 0";
+                tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-gray-500">No stock found. Add a purchase above.</td></tr>';
+                return;
+            }
+
+            currentStock.forEach(p => {
+                const value = p.remainingBags * p.costPerBag;
+                totalBagsRemaining += p.remainingBags;
+                totalValue += value;
+
+                const row = `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4 whitespace-nowrap">${formatDate(p.dateTimestamp)}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">${p.originalBags}</td>
+                        <td class="px-6 py-4 whitespace-nowrap font-bold text-blue-600">${p.remainingBags}</td>
+                        <td class="px-6 py-4 whitespace-nowrap font-mono">${formatCurrency(p.costPerBag)}</td>
+                        <td class="px-6 py-4 whitespace-nowrap font-bold">${formatCurrency(value)}</td>
+                    </tr>
+                `;
+                tbody.innerHTML += row;
+            });
+            
+            summaryEl.textContent = `Total Remaining Bags: ${totalBagsRemaining} | Estimated Value: ${formatCurrency(totalValue)}`;
+        }
+
+        function renderJobHistory() {
+            const tbody = document.getElementById('job-history-table');
+            tbody.innerHTML = '';
+
+            if (jobs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="py-4 text-center text-gray-500">No job history available.</td></tr>';
+                return;
+            }
+
+            jobs.forEach(j => {
+                const row = `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4 whitespace-nowrap">${formatDate(j.dateTimestamp)}</td>
+                        <td class="px-6 py-4 whitespace-nowrap font-bold text-red-600">${j.bagsUsed}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">${j.address}</td>
+                    </tr>
+                `;
+                tbody.innerHTML += row;
+            });
+        }
+
+
+        // --- Stock Management Logic (FIFO & Transactions) ---
+
+        /**
+         * The core FIFO deduction logic, executed as a single Firestore Transaction.
+         * @param {number} bagsUsed - The total number of bags to deduct.
+         * @param {string} dateString - The date of the usage job.
+         */
+        async function processJobDeduction(bagsUsed, dateString) {
+            const baseRef = `/artifacts/${appId}/users/${userId}`;
+            const purchasesColRef = collection(db, `${baseRef}/stock_tracker_purchases`);
+            const jobsColRef = collection(db, `${baseRef}/stock_tracker_jobs`);
+            let remainingToDeduct = bagsUsed;
+            const deductionDate = new Date(dateString);
+
+            jobSubmitBtn.disabled = true;
+            jobSubmitBtn.textContent = 'Processing...';
+
+            try {
+                await runTransaction(db, async (transaction) => {
+                    
+                    // 1. Get all available stock, index-safe query (only uses where/single inequality)
+                    const q = query(purchasesColRef, 
+                        // Only fetch purchases with remainingBags > 0
+                        where("remainingBags", ">", 0)
+                    );
+
+                    const snapshot = await transaction.get(q);
+
+                    if (snapshot.empty) {
+                        throw new Error("No stock available for deduction.");
+                    }
+
+                    // 2. Prepare and sort the fetched stock in memory (FIFO order)
+                    const availableStockDocs = snapshot.docs.map(doc => ({ 
+                        id: doc.id, 
+                        docRef: doc.ref, 
+                        ...doc.data() 
+                    }));
+                    
+                    // IMPORTANT: Sort in JS (FIFO order: dateTimestamp ASC, then timestamp ASC)
+                    availableStockDocs.sort((a, b) => {
+                        // 1. Sort by Purchase Date (FIFO primary key)
+                        const dateA = a.dateTimestamp.toDate();
+                        const dateB = b.dateTimestamp.toDate();
+                        if (dateA < dateB) return -1;
+                        if (dateA > dateB) return 1;
+
+                        // 2. If dates are the same, sort by creation timestamp (strict FIFO tie-breaker)
+                        const timeA = a.timestamp.toDate();
+                        const timeB = b.timestamp.toDate();
+                        if (timeA < timeB) return -1;
+                        if (timeA > timeB) return 1;
+                        return 0;
+                    });
+                    
+                    // 3. Iterate through sorted purchases and deduct stock
+                    const updates = [];
+                    for (const doc of availableStockDocs) { // Use the sorted array
+                        if (remainingToDeduct <= 0) break;
+
+                        const purchase = doc;
+                        const docRef = doc.docRef;
+                        const available = purchase.remainingBags;
+
+                        if (remainingToDeduct >= available) {
+                            // Consume the entire lot
+                            remainingToDeduct -= available;
+                            updates.push({ docRef, newRemaining: 0 });
+                        } else {
+                            // Consume only what is needed from this lot
+                            const newRemaining = available - remainingToDeduct;
+                            remainingToDeduct = 0; // Deduction complete
+                            updates.push({ docRef, newRemaining });
+                        }
+                    }
+
+                    // 4. Check if deduction was fully satisfied
+                    if (remainingToDeduct > 0) {
+                        throw new Error(`Insufficient stock. Needed ${bagsUsed} but only ${bagsUsed - remainingToDeduct} bags could be deducted.`);
+                    }
+
+                    // 5. Apply all updates within the transaction
+                    for (const { docRef, newRemaining } of updates) {
+                        transaction.update(docRef, { remainingBags: newRemaining });
+                    }
+                    
+                    // 6. Log the Job record (also within the transaction for completeness)
+                    transaction.set(doc(jobsColRef), {
+                        bagsUsed: bagsUsed,
+                        address: document.getElementById('job-address').value,
+                        dateTimestamp: deductionDate,
+                        timestamp: serverTimestamp()
+                    });
+                });
+                
+                // Success Modal/Message instead of alert
+                alertModal.show("Success!", `${bagsUsed} bags were successfully used and deducted following FIFO.`, 'success');
+
+            } catch (error) {
+                // Check for insufficient stock error
+                if (error.message.includes("Insufficient stock")) {
+                    alertModal.show("Deduction Failed", error.message, 'error');
+                } else {
+                    displayError("Transaction Failed: " + error.message);
+                    alertModal.show("Deduction Failed", `An unexpected error occurred: ${error.message}`, 'error');
+                }
+            } finally {
+                jobSubmitBtn.disabled = false;
+                jobSubmitBtn.textContent = 'Log Usage';
+            }
+        }
+
+
+        // --- Form Submission Handlers ---
+
+        purchaseForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!isAuthReady || !userId) return displayError("App not ready. Please wait for authentication.");
+
+            const bags = parseInt(document.getElementById('purchase-bags').value);
+            const costPerBag = parseFloat(document.getElementById('purchase-cost-per-bag').value);
+            const dateString = document.getElementById('purchase-date').value;
+            const dateTimestamp = new Date(dateString);
+
+            if (bags <= 0 || costPerBag <= 0 || !dateString) {
+                return displayError("Please enter valid purchase details.");
+            }
+
+            const baseRef = `/artifacts/${appId}/users/${userId}`;
+            const purchasesColRef = collection(db, `${baseRef}/stock_tracker_purchases`);
+
+            purchaseSubmitBtn.disabled = true;
+            purchaseSubmitBtn.textContent = 'Adding...';
+
+            try {
+                await addDoc(purchasesColRef, {
+                    originalBags: bags,
+                    remainingBags: bags, // Start with full stock remaining
+                    costPerBag: costPerBag,
+                    dateTimestamp: dateTimestamp,
+                    timestamp: serverTimestamp() // Secondary timestamp for strict ordering
+                });
+                purchaseForm.reset();
+                // Re-set initial date value after successful form reset
+                setInitialFormValues();
+                // Success Modal/Message instead of alert
+                alertModal.show("Success!", `Added ${bags} bags at ${formatCurrency(costPerBag)} per bag.`, 'success');
+            } catch (error) {
+                displayError("Failed to add purchase: " + error.message);
+            } finally {
+                purchaseSubmitBtn.disabled = false;
+                purchaseSubmitBtn.textContent = 'Add Purchase';
+            }
+        });
+
+        jobForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!isAuthReady || !userId) return displayError("App not ready. Please wait for authentication.");
+
+            const bagsUsed = parseInt(document.getElementById('job-bags-used').value);
+            const address = document.getElementById('job-address').value.trim();
+            const dateString = document.getElementById('job-date').value;
+            
+            if (bagsUsed <= 0 || !address || !dateString) {
+                return displayError("Please enter valid job usage details.");
+            }
+            
+            // Check if there's any stock available at all
+            const totalRemaining = purchases.reduce((sum, p) => sum + p.remainingBags, 0);
+            if (bagsUsed > totalRemaining) {
+                 alertModal.show("Stock Warning", `Cannot use ${bagsUsed} bags. Only ${totalRemaining} bags are currently in stock.`, 'warning');
+                 return;
+            }
+
+            // Execute the FIFO deduction and job logging within a transaction
+            await processJobDeduction(bagsUsed, dateString);
+            jobForm.reset();
+            // Re-set initial date value after successful form reset
+            setInitialFormValues();
+        });
+
+        // --- Custom Alert Modal (No window.alert/confirm) ---
+
+        const alertModal = (function() {
+            const modalHtml = `
+                <div id="custom-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50 hidden">
+                    <div class="card p-6 w-96 max-w-lg space-y-4">
+                        <div id="modal-icon" class="text-4xl text-center"></div>
+                        <h3 id="modal-title" class="text-xl font-bold text-center text-gray-800"></h3>
+                        <p id="modal-body" class="text-gray-600 text-center"></p>
+                        <button id="modal-close-btn" class="btn-primary w-full py-2 rounded-lg font-medium">OK</button>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+            const modal = document.getElementById('custom-modal');
+            const titleEl = document.getElementById('modal-title');
+            const bodyEl = document.getElementById('modal-body');
+            const iconEl = document.getElementById('modal-icon');
+            const closeBtn = document.getElementById('modal-close-btn');
+
+            closeBtn.onclick = () => modal.classList.add('hidden');
+
+            function show(title, body, type = 'info') {
+                titleEl.textContent = title;
+                bodyEl.textContent = body;
+                iconEl.innerHTML = ''; 
+                
+                let iconText = '';
+                switch (type) {
+                    case 'success': iconText = '<span class="text-green-500">🎉</span>'; break;
+                    case 'error': iconText = '<span class="text-red-500">🛑</span>'; break;
+                    case 'warning': iconText = '<span class="text-yellow-500">⚠️</span>'; break;
+                    default: iconText = '<span class="text-blue-500">ℹ️</span>';
+                }
+                iconEl.innerHTML = iconText;
+                
+                modal.classList.remove('hidden');
+            }
+
+            return { show };
+        })();
+
+
+        // --- Start Application ---
+        window.onload = () => {
+            initFirebase();
+            setInitialFormValues(); // Set the dates immediately when the page loads
+        };
+
+    </script>
+</body>
+</html>
