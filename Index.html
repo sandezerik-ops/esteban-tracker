@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Insulation Tracker Pro</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      :root { --primary: #2c3e50; --secondary: #27ae60; --danger: #e74c3c; --accent: #2980b9; --light: #f4f7f6; }
+      body { font-family: 'Segoe UI', sans-serif; background: var(--light); padding: 15px; margin: 0; color: #333; }
+      .container { max-width: 900px; margin: auto; }
+      .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+      
+      /* Dashboard */
+      .stock-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-top: 10px; }
+      .stock-item { background: #fff; padding: 10px; border-radius: 8px; text-align: center; border: 1px solid #ddd; }
+      .stock-item h4 { margin: 0 0 5px 0; font-size: 12px; color: #7f8c8d; }
+      .stock-count { font-size: 20px; font-weight: bold; color: var(--primary); }
+      .low-stock { color: var(--danger) !important; }
+
+      /* Tabs */
+      .tabs { display: flex; gap: 5px; margin-bottom: 20px; overflow-x: auto; }
+      .tab-btn { flex: 1; min-width: 100px; padding: 12px; border: none; border-radius: 8px; cursor: pointer; background: #bdc3c7; color: white; font-weight: bold; }
+      .tab-btn.active { background: var(--primary); }
+
+      /* Form */
+      label { display: block; margin: 10px 0 5px; font-weight: bold; font-size: 14px; }
+      input, select, button { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 16px; }
+      button.submit-btn { background: var(--secondary); color: white; border: none; margin-top: 20px; cursor: pointer; font-weight: bold; }
+      
+      .hidden { display: none; }
+      .table-wrapper { overflow-x: auto; }
+      table { width: 100%; border-collapse: collapse; margin-top: 15px; min-width: 500px; }
+      th, td { padding: 12px; border-bottom: 1px solid #eee; text-align: left; }
+      th { background: #f8f9fa; }
+      .price-tag { color: var(--secondary); font-weight: bold; }
+    </style>
+  </head>
+  <body>
+
+    <div class="container">
+      <h2>Insulation Inventory Manager</h2>
+
+      <div class="card">
+        <h3 style="margin-top:0">Live Stock (Bags Left)</h3>
+        <div id="stockSummary" class="stock-grid"></div>
+      </div>
+
+      <div class="tabs">
+        <button id="tab-form" class="tab-btn active" onclick="showPage('form')">Add Entry</button>
+        <button id="tab-usage" class="tab-btn" onclick="showPage('usage'); renderUsage();">Address History</button>
+        <button id="tab-purchase" class="tab-btn" onclick="showPage('purchase'); renderPurchases();">Purchase Logs</button>
+      </div>
+
+      <div id="page-form" class="card">
+        <form id="mainForm">
+          <label>I want to:</label>
+          <select id="entryType" onchange="updateFormUI()">
+            <option value="usage">Log Used Material (to Address)</option>
+            <option value="purchase">Log Purchased Material (to Stock)</option>
+          </select>
+
+          <label>Date</label>
+          <input type="date" id="dateInput" required>
+
+          <div id="addressBox">
+            <label>Job Site Address</label>
+            <input type="text" id="addressInput" placeholder="123 Example St, City">
+          </div>
+
+          <label>Material</label>
+          <select id="materialInput" required>
+            <option>R11</option><option>R13</option><option>R19</option>
+            <option>R30</option><option>R38</option><option>Fi-Foil</option>
+            <option>Baffles</option><option>Fireblock Foam</option>
+          </select>
+
+          <label>Quantity (Bags/Units)</label>
+          <input type="number" id="qtyInput" placeholder="0" required>
+
+          <div id="priceBox" class="hidden">
+            <label>Purchase Price (Per Bag)</label>
+            <input type="number" step="0.01" id="priceInput" placeholder="0.00">
+          </div>
+
+          <button type="submit" class="submit-btn">Save Entry</button>
+        </form>
+      </div>
+
+      <div id="page-usage" class="card hidden">
+        <h3>Material Cost by Address</h3>
+        <input type="text" id="searchUsage" placeholder="Filter by address..." onkeyup="renderUsage()" style="margin-bottom:10px">
+        <div class="table-wrapper">
+          <table>
+            <thead><tr><th>Date</th><th>Address</th><th>Material</th><th>Qty</th><th>Job Cost</th></tr></thead>
+            <tbody id="usageTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="page-purchase" class="card hidden">
+        <h3>All Material Purchases</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead><tr><th>Date</th><th>Material</th><th>Qty</th><th>Cost/Bag</th><th>Total Paid</th></tr></thead>
+            <tbody id="purchaseTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <button onclick="clearAllData()" style="background:none; border:none; color:grey; font-size:10px; cursor:pointer; margin-top:20px;">Clear All Data (Reset System)</button>
+    </div>
+
+    <script>
+      // Load Data
+      let purchases = JSON.parse(localStorage.getItem('ins_purchases')) || [];
+      let usage = JSON.parse(localStorage.getItem('ins_usage')) || [];
+      const matList = ["R11","R13","R19","R30","R38","Fi-Foil","Baffles","Fireblock Foam"];
+
+      document.getElementById('dateInput').valueAsDate = new Date();
+
+      function updateFormUI() {
+        const isUsage = document.getElementById("entryType").value === "usage";
+        document.getElementById("addressBox").style.display = isUsage ? "block" : "none";
+        document.getElementById("priceBox").style.display = isUsage ? "none" : "block";
+      }
+
+      function showPage(pageName) {
+        ['form', 'usage', 'purchase'].forEach(p => {
+          document.getElementById('page-' + p).classList.toggle('hidden', p !== pageName);
+          document.getElementById('tab-' + p).classList.toggle('active', p === pageName);
+        });
+        updateDashboard();
+      }
+
+      function updateDashboard() {
+        const container = document.getElementById('stockSummary');
+        container.innerHTML = "";
+        matList.forEach(m => {
+          const totalIn = purchases.filter(p => p.material === m).reduce((s, p) => s + Number(p.qty), 0);
+          const totalOut = usage.filter(u => u.material === m).reduce((s, u) => s + Number(u.qty), 0);
+          const current = totalIn - totalOut;
+          container.innerHTML += `<div class="stock-item"><h4>${m}</h4><div class="stock-count ${current < 10 ? 'low-stock' : ''}">${current}</div></div>`;
+        });
+      }
+
+      function getFIFOCost(material, qtyNeeded) {
+        let totalCost = 0;
+        let needed = Number(qtyNeeded);
+        let usedBeforeThis = usage.filter(u => u.material === material).reduce((s, u) => s + Number(u.qty), 0);
+        
+        const matPurchases = purchases.filter(p => p.material === material);
+        if (matPurchases.length === 0) return 0;
+
+        let runningTotal = 0;
+        for (let p of matPurchases) {
+          let pQty = Number(p.qty);
+          if (runningTotal + pQty <= usedBeforeThis) {
+            runningTotal += pQty;
+            continue;
+          }
+          let available = (runningTotal + pQty) - usedBeforeThis;
+          let taken = Math.min(needed, available);
+          totalCost += (taken * Number(p.price || 0));
+          needed -= taken;
+          usedBeforeThis += taken;
+          if (needed <= 0) break;
+        }
+        return totalCost;
+      }
+
+      document.getElementById("mainForm").onsubmit = function(e) {
+        e.preventDefault();
+        const type = document.getElementById("entryType").value;
+        const entry = {
+          date: document.getElementById("dateInput").value,
+          material: document.getElementById("materialInput").value,
+          qty: Number(document.getElementById("qtyInput").value)
+        };
+
+        if (type === "purchase") {
+          entry.price = Number(document.getElementById("priceInput").value || 0);
+          purchases.push(entry);
+          localStorage.setItem('ins_purchases', JSON.stringify(purchases));
+          alert("Purchase Logged.");
+        } else {
+          entry.address = document.getElementById("addressInput").value || "General/Unspecified";
+          entry.cost = getFIFOCost(entry.material, entry.qty);
+          usage.push(entry);
+          localStorage.setItem('ins_usage', JSON.stringify(usage));
+          alert("Usage Logged. Cost: $" + entry.cost.toFixed(2));
+        }
+        
+        this.reset();
+        document.getElementById('dateInput').valueAsDate = new Date();
+        updateFormUI();
+        updateDashboard();
+      };
+
+      function renderUsage() {
+        const search = document.getElementById("searchUsage").value.toUpperCase();
+        const body = document.getElementById('usageTableBody');
+        body.innerHTML = usage.filter(u => u.address.toUpperCase().includes(search)).map(u => 
+          `<tr><td>${u.date}</td><td>${u.address}</td><td>${u.material}</td><td>${u.qty}</td><td class="price-tag">$${Number(u.cost).toFixed(2)}</td></tr>`
+        ).reverse().join('');
+      }
+
+      function renderPurchases() {
+        const body = document.getElementById('purchaseTableBody');
+        body.innerHTML = purchases.slice().reverse().map(p => 
+          `<tr><td>${p.date}</td><td><b>${p.material}</b></td><td>${p.qty}</td><td>$${Number(p.price).toFixed(2)}</td><td class="price-tag">$${(p.qty * p.price).toFixed(2)}</td></tr>`
+        ).join('');
+      }
+
+      function clearAllData() {
+        if(confirm("Delete everything?")) {
+          localStorage.clear();
+          location.reload();
+        }
+      }
+
+      updateDashboard();
+      updateFormUI();
+    </script>
+  </body>
+</html>
